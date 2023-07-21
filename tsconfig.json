@@ -3,7 +3,8 @@
     "module": "commonjs",
     "outDir": "dist",
     "lib": ["es2015", "es2015.promise"],
-    "noImplicitAny": true
+    "noImplicitAny": true,
+    "esModuleInterop": true
   },
   "include": [
     "src/**/*.ts"
