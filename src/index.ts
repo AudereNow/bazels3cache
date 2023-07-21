@@ -30,36 +30,9 @@ function daemonMain(args: Args, onDoneInitializing: () => void) {
     initLogging(config); // Do this early, because when logging doesn't work, we're flying blind
     validateConfig(config); // throws if config is invalid
 
-    const chain = new AWS.CredentialProviderChain(null);
-    chain.resolvePromise()
-        .then(credentials => {
-            AWS.config.update({
-                httpOptions: {
-                    agent: new https.Agent({
-                        keepAlive: true,
-                        keepAliveMsecs: 60000
-                    })
-                },
-                credentials: credentials
-            });
-            return new AWS.S3({
-                apiVersion: "2006-03-01",
-                credentials: credentials
-            });
-        })
-        .catch((err: AWS.AWSError) => {
-            const message = `Could not resolve AWS credentials: ${err.message}`;
-            fatalError(message);
-        })
-        .then((s3: AWS.S3) => {
-            if (s3) {
-                startServer(s3, config, onDoneInitializing);
-            }
-        })
-        .catch(err => {
-            const message = err.message || ""+err;
-            fatalError(message);
-        })
+    let credentials = fromIni();
+    let s3 = new S3({ credentials });
+    startServer(s3, config, onDoneInitializing);
 }
 
 function main(args: string[]) {
