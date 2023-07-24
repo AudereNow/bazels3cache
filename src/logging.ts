@@ -26,7 +26,8 @@ export function initLogging(config: Config) {
             new (winston.transports.File)({
                 filename: config.logging.file,
                 json: false
-            })
+            }),
+            new (winston.transports.Console)(),
         ],
         padLevels: true,
     });
