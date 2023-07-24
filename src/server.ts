@@ -19,7 +19,8 @@ enum StatusCode {
     Forbidden = 403,
     NotFound = 404,
     MethodNotAllowed = 405,
-};
+    InternalServerError = 500,
+}
 
 function logProps(
     req: http.IncomingMessage,
@@ -85,11 +86,20 @@ function sendResponse(
     } else {
         winston.warn("Client closed connection before we could respond.")
     }
+
+    if (res.statusCode === StatusCode.InternalServerError) {
+        winston.error("Unrecoverable Error, shutting down");
+        process.exit();
+    }
 }
 
 function isIgnorableError(err: any) {
     // TODO add a comment explaining this
     return err.retryable === true;
+}
+
+function isExpiredTokenError(err: any) {
+    return err.Code === "ExpiredToken";
 }
 
 function shouldIgnoreError(err: any, config: Config) {
@@ -101,7 +111,9 @@ function getHttpResponseStatusCode(
     codeIfIgnoringError: StatusCode,
     config: Config
 ) {
-    if (shouldIgnoreError(err, config)) {
+    if (isExpiredTokenError(err)) {
+        return StatusCode.InternalServerError;
+    } else if (shouldIgnoreError(err, config)) {
         return codeIfIgnoringError;
     } else {
         return err.statusCode || StatusCode.NotFound;
@@ -136,7 +148,7 @@ export function startServer(s3: S3, config: Config, onDoneInitializing: () => vo
         debug(message);
         winston.error(message);
         winston.verbose(JSON.stringify(s3error, null, "  "));
-        if (++awsErrors >= config.errorsBeforePausing) {
+        if (!isExpiredTokenError(s3error) && ++awsErrors >= config.errorsBeforePausing) {
             winston.warn(`Encountered ${awsErrors} consecutive AWS errors; pausing AWS access for ${config.pauseMinutes} minutes`);
             awsPaused = true;
             awsPauseTimer = setTimeout(() => {
