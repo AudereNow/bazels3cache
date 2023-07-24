@@ -30,8 +30,7 @@ function childMain(args: Args, onDoneInitializing: () => void) {
     initLogging(config); // Do this early, because when logging doesn't work, we're flying blind
     validateConfig(config); // throws if config is invalid
 
-    let credentials = fromIni();
-    let s3 = new S3({ credentials });
+    let s3 = new S3({});
     startServer(s3, config, onDoneInitializing);
 }
 
