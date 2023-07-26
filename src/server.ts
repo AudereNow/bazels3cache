@@ -244,18 +244,21 @@ export function startServer(s3: S3, config: Config, onDoneInitializing: () => vo
                         .then(data => {
                             const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
 
-                            if (!config.allowGccDepfiles && isGccDepfile(<Buffer>data.Body)) {
-                                res.statusCode = StatusCode.NotFound;
-                                sendResponse(req, res, null, { startTime, s3RequestDurationMs, awsPaused, isBlockedGccDepfile: true });
-                            } else {
-                                cache.maybeAdd(s3key, <Buffer>data.Body); // safe cast?
-                                sendResponse(req, res, <Buffer>data.Body, { // safe cast?
-                                    startTime,
-                                    s3RequestDurationMs,
-                                    awsPaused
-                                });
-                            }
-                            onAWSSuccess();
+                            data.Body.transformToByteArray().then(arr => {
+                                const buffer = new Buffer(arr);
+                                if (!config.allowGccDepfiles && isGccDepfile(buffer)) {
+                                    res.statusCode = StatusCode.NotFound;
+                                    sendResponse(req, res, null, { startTime, s3RequestDurationMs, awsPaused, isBlockedGccDepfile: true });
+                                } else {
+                                    cache.maybeAdd(s3key, buffer); // safe cast?
+                                    sendResponse(req, res, buffer, { // safe cast?
+                                        startTime,
+                                        s3RequestDurationMs,
+                                        awsPaused
+                                    });
+                                }
+                                onAWSSuccess();
+                            });
                         })
                         .catch((err: any) => {
                             const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
@@ -318,6 +321,7 @@ export function startServer(s3: S3, config: Config, onDoneInitializing: () => vo
                         } else {
                             pendingUploadBytes += size;
                             const streamedBody = fs.createReadStream(pth);
+                            const s3RequestStartTime = new Date();
                             const s3request = new Upload({
                                 client: s3,
 
