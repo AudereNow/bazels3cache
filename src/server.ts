@@ -235,7 +235,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                     const s3RequestStartTime = new Date();
                     const s3request = s3.getObject({
                          Bucket: config.bucket,
-                         Key: s3key
+                         Key: config.s3Prefix + s3key
                     }).promise();
 
                     s3request
@@ -319,7 +319,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                             const s3RequestStartTime = new Date();
                             const s3request = s3.upload({
                                 Bucket: config.bucket,
-                                Key: s3key,
+                                Key: config.s3Prefix + s3key,
                                 Body: streamedBody,
                                 // Very important: The bucket owner needs full control of the uploaded
                                 // object, so that they can share the object with all the appropriate
@@ -373,7 +373,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                     const s3RequestStartTime = new Date();
                     const s3request = s3.headObject({
                          Bucket: config.bucket,
-                         Key: s3key
+                         Key: config.s3Prefix + s3key
                     }).promise();
 
                     s3request
@@ -400,7 +400,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                 const s3RequestStartTime = new Date();
                 const s3request = s3.deleteObject({
                     Bucket: config.bucket,
-                    Key: s3key
+                    Key: config.s3Prefix + s3key
                 }).promise();
 
                 s3request
