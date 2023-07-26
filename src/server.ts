@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
-import * as AWS from "aws-sdk";
+import { Upload } from "@aws-sdk/lib-storage";
+import { S3 } from "@aws-sdk/client-s3";
 import * as debug_ from "debug";
 import * as minimist from "minimist";
 import * as mkdirp from "mkdirp";
@@ -10,6 +11,7 @@ import * as winston from "winston";
 import { Args, Config, getConfig, validateConfig } from "./config";
 import { Cache } from "./memorycache";
 import { debug } from "./debug";
+import getRawBody from "raw-body";
 
 // just the ones we need...
 enum StatusCode {
@@ -92,17 +94,17 @@ function sendResponse(
     }
 }
 
-function isIgnorableError(err: AWS.AWSError) {
+function isIgnorableError(err: any) {
     // TODO add a comment explaining this
     return err.retryable === true;
 }
 
-function shouldIgnoreError(err: AWS.AWSError, config: Config) {
+function shouldIgnoreError(err: any, config: Config) {
     return config.allowOffline && isIgnorableError(err);
 }
 
 function getHttpResponseStatusCode(
-    err: AWS.AWSError,
+    err: any,
     codeIfIgnoringError: StatusCode,
     config: Config
 ) {
@@ -115,7 +117,7 @@ function getHttpResponseStatusCode(
 
 function prepareErrorResponse(
     res: http.ServerResponse,
-    err: AWS.AWSError,
+    err: any,
     codeIfIgnoringError: StatusCode,
     config: Config
 ) {
@@ -128,7 +130,7 @@ function pathToUploadCache(s3key: string, config: Config) {
     return path.join(config.asyncUpload.cacheDir, s3key);
 }
 
-export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () => void) {
+export function startServer(s3: S3, config: Config, onDoneInitializing: () => void) {
     const cache = new Cache(config); // in-memory cache
     let idleTimer: NodeJS.Timer;
     let awsPauseTimer: NodeJS.Timer;
@@ -136,7 +138,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
     let awsPaused = false;
     let pendingUploadBytes = 0;
 
-    function onAWSError(req: http.IncomingMessage, s3error: AWS.AWSError) {
+    function onAWSError(req: http.IncomingMessage, s3error: any) {
         const message = `${req.method} ${req.url}: ${s3error.message || s3error.code}`;
         debug(message);
         winston.error(message);
@@ -236,31 +238,34 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                     const s3request = s3.getObject({
                          Bucket: config.bucket,
                          Key: config.s3Prefix + s3key
-                    }).promise();
+                    });
 
                     s3request
                         .then(data => {
                             const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
 
-                            if (!config.allowGccDepfiles && isGccDepfile(<Buffer>data.Body)) {
-                                res.statusCode = StatusCode.NotFound;
-                                sendResponse(req, res, null, { startTime, s3RequestDurationMs, awsPaused, isBlockedGccDepfile: true });
-                            } else {
-                                cache.maybeAdd(s3key, <Buffer>data.Body); // safe cast?
-                                sendResponse(req, res, <Buffer>data.Body, { // safe cast?
-                                    startTime,
-                                    s3RequestDurationMs,
-                                    awsPaused
-                                });
-                            }
-                            onAWSSuccess();
+                            data.Body.transformToByteArray().then(arr => {
+                                const buffer = new Buffer(arr);
+                                if (!config.allowGccDepfiles && isGccDepfile(buffer)) {
+                                    res.statusCode = StatusCode.NotFound;
+                                    sendResponse(req, res, null, { startTime, s3RequestDurationMs, awsPaused, isBlockedGccDepfile: true });
+                                } else {
+                                    cache.maybeAdd(s3key, buffer); // safe cast?
+                                    sendResponse(req, res, buffer, { // safe cast?
+                                        startTime,
+                                        s3RequestDurationMs,
+                                        awsPaused
+                                    });
+                                }
+                                onAWSSuccess();
+                            });
                         })
-                        .catch((err: AWS.AWSError) => {
+                        .catch((err: any) => {
                             const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
 
                             // 404 is not an error; it just means we successfully talked to S3
                             // and S3 told us there was no such item.
-                            if (err.statusCode === StatusCode.NotFound) {
+                            if (err.Code === "NoSuchKey") {
                                 onAWSSuccess();
                             } else {
                                 onAWSError(req, err);
@@ -317,15 +322,19 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                             pendingUploadBytes += size;
                             const streamedBody = fs.createReadStream(pth);
                             const s3RequestStartTime = new Date();
-                            const s3request = s3.upload({
-                                Bucket: config.bucket,
-                                Key: config.s3Prefix + s3key,
-                                Body: streamedBody,
-                                // Very important: The bucket owner needs full control of the uploaded
-                                // object, so that they can share the object with all the appropriate
-                                // users
-                                ACL: "bucket-owner-full-control"
-                            }).promise();
+                            const s3request = new Upload({
+                                client: s3,
+
+                                params: {
+                                    Bucket: config.bucket,
+                                    Key: config.s3Prefix + s3key,
+                                    Body: streamedBody,
+                                    // Very important: The bucket owner needs full control of the uploaded
+                                    // object, so that they can share the object with all the appropriate
+                                    // users
+                                    ACL: "bucket-owner-full-control"
+                                }
+                            }).done();
                             s3request
                                 .then(() => {
                                     const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
@@ -334,7 +343,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                                     }
                                     onAWSSuccess();
                                 })
-                                .catch((err: AWS.AWSError) => {
+                                .catch((err: any) => {
                                     const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
                                     onAWSError(req, err);
                                     if (!config.asyncUpload.enabled) {
@@ -374,7 +383,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                     const s3request = s3.headObject({
                          Bucket: config.bucket,
                          Key: config.s3Prefix + s3key
-                    }).promise();
+                    });
 
                     s3request
                         .then(data => {
@@ -382,7 +391,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                             sendResponse(req, res, null, { startTime, s3RequestDurationMs, awsPaused });
                             onAWSSuccess();
                         })
-                        .catch((err: AWS.AWSError) => {
+                        .catch((err: any) => {
                             const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
                             onAWSError(req, err);
                             // If the error is an ignorable one (e.g. the user is offline), then
@@ -401,7 +410,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                 const s3request = s3.deleteObject({
                     Bucket: config.bucket,
                     Key: config.s3Prefix + s3key
-                }).promise();
+                });
 
                 s3request
                     .then(() => {
@@ -409,7 +418,7 @@ export function startServer(s3: AWS.S3, config: Config, onDoneInitializing: () =
                         onAWSSuccess();
                         sendResponse(req, res, null, { startTime, s3RequestDurationMs, awsPaused });
                     })
-                    .catch((err: AWS.AWSError) => {
+                    .catch((err: any) => {
                         const s3RequestDurationMs = timeSinceMs(s3RequestStartTime);
                         onAWSError(req, err);
                         prepareErrorResponse(res, err, StatusCode.NotFound, config);

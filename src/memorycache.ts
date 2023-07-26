@@ -1,4 +1,4 @@
-import * as debug_ from "debug";
+import debug_ from "debug";
 import { Config } from "./config";
 
 const debugCache = debug_("bazels3cache:cache");

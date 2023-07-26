@@ -1,8 +1,8 @@
-import * as path from "path";
-import * as fs from "fs";
-import * as os from "os";
-import * as commentJson from "comment-json";
-import * as VError from "verror";
+import path from "path";
+import fs from "fs";
+import os from "os";
+import commentJson from "comment-json";
+import VError from "verror";
 
 // Command line arguments
 export interface Args {
