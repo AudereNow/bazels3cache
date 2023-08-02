@@ -1,7 +1,3 @@
-# [DEPRECATED] This project is no longer maintained
-
-As of December 2022, Asana is no longer using bazels3cache internally. See [the Bazel documentation](https://bazel.build/remote/caching#cache-backend) for potential alternatives.
-
 # Web server for proxying Bazel remote cache requests to S3.
 
 `bazels3cache` is a simple web server that supports basic WebDAV (`GET`, `PUT`,
@@ -17,7 +13,7 @@ cache.
 
 *   Launch `bazels3cache` like this (by default it listens on port 7777):
 
-        bazels3cache --bucket=MY_S3_BUCKET
+        bazels3cache --bucket=MY_S3_BUCKET --s3Prefix=some/path/
 
 *   When you launch Bazel, tell it where the cache is:
 
